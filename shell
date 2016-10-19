@@ -1,0 +1,168 @@
+#!/bin/sh
+PRODUCT_NAME=$1
+PRODUCT_PORT=$2
+PRODUCT_TYPE=$3
+TOMCAT_NAME=$PRODUCT_NAME"_"$PRODUCT_PORT
+CATALINA_LOG="catalina.out"
+
+
+if [ "java"x = "$PRODUCT_TYPE"x ] ;then
+	SOURCE_WAR="/home/xxx/target/$PRODUCT_NAME*.jar"
+	echo $SOURCE_WAR
+	CATALINA_LOG="jenkens_startup.log"
+else
+	SOURCE_WAR="/home/tomcat/target/$PRODUCT_NAME*.war"
+	echo $SOURCE_WAR
+fi
+
+PRODUCT_DIR="/gomeo2o/"$TOMCAT_NAME
+
+TOMCAT_USER="tomcat"
+
+source /etc/profile
+if [ ! -n "$PRODUCT_PORT" ];then
+echo "Please enter at least two parameters! Project name and Port number"
+exit 1;
+else
+echo "ok"
+fi 
+
+
+echo -e "\033[1m\033[31m##################################################  $PRODUCT_NAME start stop...  ##################################################\033[0m" 
+
+$PRODUCT_DIR/bin/shutdown.sh
+
+### check status
+for (( c=1; c<=3; c++ ))
+do
+        PIDLIST=`ps -ef|grep java |grep $TOMCAT_NAME|grep -v "grep"|awk '{print $2}'`
+        if ( [ ! -n "$PIDLIST" ] )
+            then
+                echo -e "\033[1m\033[31m##################################################  $PRODUCT_NAME stop succeed! ##################################################\033[0m" 
+                break
+        fi
+        sleep 5s;
+done
+###
+
+### kill -9
+PIDLIST=`ps -ef|grep java |grep $TOMCAT_NAME|grep -v "grep"|awk '{print $2}'`
+
+if ( [ -n "$PIDLIST" ] );then
+       kill -9 $PIDLIST
+       echo -e "\033[1m\033[31m##################################################  $PRODUCT_NAME start kill-9  ##################################################\033[0m"
+fi
+
+PIDLIST=`ps -ef|grep java |grep $TOMCAT_NAME|grep -v "grep"|awk '{print $2}'`
+
+if ( [ -n "$PIDLIST" ] );then
+       echo -e "\033[1m\033[31m##################################################  $PRODUCT_NAME kill-9 failed ##################################################\033[0m"
+       exit 0
+fi
+
+#backup
+time=$(date +"%Y%m%d-%H%M%S")
+
+if [ "java"x  = "$PRODUCT_TYPE"x ] ;then
+
+	if [ ! -d $PRODUCT_DIR/logs ];then
+		mkdir $PRODUCT_DIR/logs
+	fi
+	rm -rf $PRODUCT_DIR/*.jar
+	mv $SOURCE_WAR $PRODUCT_DIR/
+	if [ `echo $?` -eq 0 ];then
+		echo -e "\033[1m\033[31m#########################  $PRODUCT_NAME cp succeed! ###############################\033[0m"
+	else
+		 echo -e "\033[1m\033[31m#########################  $PRODUCT_NAME cp failed ################################\033[0m"
+		 exit 0
+	fi
+	## unzip $PRODUCT_DIR/$PRODUCT_NAME*.zip -d $PRODUCT_DIR && mv $PRODUCT_DIR/$PRODUCT_NAME*/* $PRODUCT_DIR
+
+else
+
+	rm -rf $PRODUCT_DIR/work/*
+	rm -rf $PRODUCT_DIR/temp/*
+	rm -rf $PRODUCT_DIR/webapps/*
+	rm -rf $PRODUCT_DIR/webapps/$PRODUCT_NAME
+	mkdir -p $PRODUCT_DIR/webapps/$PRODUCT_NAME
+	echo $SOURCE_WAR 
+	echo $PRODUCT_DIR/webapps/
+	mv $SOURCE_WAR $PRODUCT_DIR/webapps/
+	if [ `echo $?` -eq 0 ];then
+		echo -e "\033[1m\033[31m#########################  $PRODUCT_NAME cp succeed! ###############################\033[0m"
+	else
+		 echo -e "\033[1m\033[31m#########################  $PRODUCT_NAME cp failed ################################\033[0m"
+		 exit 0
+	fi
+	unzip $PRODUCT_DIR/webapps/$PRODUCT_NAME*.war -d $PRODUCT_DIR/webapps/$PRODUCT_NAME
+fi
+
+if [ "java"x != "$PRODUCT_TYPE"x ] ;then
+	if [ `echo $?` -eq 0 ];then
+     		echo -e "\033[1m\033[31m#########################  $PRODUCT_NAME unzip succeed! ###############################\033[0m"
+  	else
+     		echo -e "\033[1m\033[31m#########################  $PRODUCT_NAME  unzip failed ################################\033[0m"
+     		exit 0
+	fi
+fi
+
+
+if [ "java"x = "$PRODUCT_TYPE"x ] ;then
+	chown $TOMCAT_USER.$TOMCAT_USER -R  $PRODUCT_DIR
+	#rm -fr $PRODUCT_DIR/$PRODUCT_NAME*.zip
+	#rmdir $PRODUCT_DIR/$PRODUCT_NAME*
+	
+	#startup
+	echo -e "\033[1m\033[31m##################################################  $PRODUCT_NAME start restart... ##################################################\033[0m"
+	POSITION_START=`cat $PRODUCT_DIR/logs/$CATALINA_LOG|wc -l`
+	cd $PRODUCT_DIR
+	./bin/startup.sh >> $PRODUCT_DIR/logs/$CATALINA_LOG 2>&1 &
+
+else
+	chown $TOMCAT_USER.$TOMCAT_USER -R  $PRODUCT_DIR
+	rm -fr $PRODUCT_DIR/webapps/$PRODUCT_NAME*.war
+	#startup
+	echo -e "\033[1m\033[31m##################################################  $PRODUCT_NAME start restart... ##################################################\033[0m"
+
+	POSITION_START=`cat $PRODUCT_DIR/logs/$CATALINA_LOG|wc -l`
+	$PRODUCT_DIR/bin/startup.sh &
+
+fi
+
+
+for (( c=1; c<=100; c++ ))
+do
+        sleep 2s;
+        POSITION_END=`cat $PRODUCT_DIR/logs/$CATALINA_LOG|wc -l`
+	
+	if [ "java"x = "$PRODUCT_TYPE"x ] ;then
+		START_FLAG="Server startup success"
+	else
+		START_FLAG="Server startup in"
+	fi
+	STARTUP_LIST=`cat $PRODUCT_DIR/logs/$CATALINA_LOG|head -n $POSITION_END|tail -n +$POSITION_START|grep "$START_FLAG"|wc -l`
+	#cat $PRODUCT_DIR/logs/$CATALINA_LOG|head -n $POSITION_END|tail -n +$POSITION_START |egrep "(Error)" && exit 20
+
+		
+        if [[ "$STARTUP_LIST" -ne 0 ]];then
+                sleep 5s;
+                tail -n +$POSITION_START $PRODUCT_DIR/logs/$CATALINA_LOG
+                echo -e "\033[1m\033[31m##################################################  $PRODUCT_NAME restart succeed! ##################################################\033[0m" 
+                if [ "java"x != "$PRODUCT_TYPE"x ] ;then
+			#touch $PRODUCT_DIR/webapps/$PRODUCT_NAME/ok.html
+			echo 'ok' > $PRODUCT_DIR/webapps/$PRODUCT_NAME/ok.html
+			sleep 1s;
+			#project_status=$(curl -s -m 10 -w http_code:%{http_code} http://localhost:$PRODUCT_PORT/ok.html)
+			echo "######curl http://localhost:${PRODUCT_PORT}/ok.html --> $(curl -s -m 10 -w http_code:%{http_code} http://localhost:$PRODUCT_PORT/ok.html)"
+		fi
+		exit 0;
+        else
+            cat $PRODUCT_DIR/logs/$CATALINA_LOG |head -n $POSITION_END|tail -n +$POSITION_START
+            POSITION_START=`expr $POSITION_END + 1`
+        fi
+done
+
+
+echo -e "\033[1m\033[31m##################################################  $PRODUCT_NAME restart failed(time out) ##################################################\033[0m" 
+
+
